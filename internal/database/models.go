@@ -6,23 +6,24 @@ import (
 )
 
 type APIKey struct {
-	ID         string
-	KeyHash    string
-	KeyPrefix  string
-	IsActive   bool
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RateLimit  int
-	UsageCount int
+	ID         string     `json:"id"`
+	KeyHash    string     `json:"key_hash"`
+	KeyPrefix  string     `json:"key_prefix"`
+	KeyID      string     `json:"key_id"`
+	IsActive   bool       `json:"is_active"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	RateLimit  int        `json:"rate_limit"`
+	UsageCount int        `json:"usage_count"`
 }
 
 type APIUsage struct {
-	ID       int64
-	APIKeyID string
-	Endpoint string
-	UsedAt   time.Time
-	Status   int
-	RemoteIP string
+	ID       int64     `json:"id"`
+	APIKeyID string    `json:"api_key_id"`
+	Endpoint string    `json:"endpoint"`
+	UsedAt   time.Time `json:"used_at"`
+	Status   int       `json:"status"`
+	RemoteIP string    `json:"remote_ip"`
 }
 
 type AuditLog struct {

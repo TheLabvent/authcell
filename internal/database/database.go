@@ -28,6 +28,7 @@ type Service interface {
 	CreateAPIKey(key APIKey) error
 	GetAPIKeyByID(id string) (APIKey, error)
 	GetAPIKeyByPrefix(prefix string) (APIKey, error)
+	GetAPIKeyByKeyID(prefix string) (APIKey, error)
 	RevokeAPIKey(id string) error
 	ListUsage(keyID string) ([]APIUsage, error)
 	ListAuditLog() ([]AuditLog, error)
