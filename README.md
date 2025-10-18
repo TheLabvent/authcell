@@ -26,6 +26,9 @@ Designed for simplicity, privacy, and host control, AuthCell runs as a single co
 
 ## API Endpoints
 
+** API Documentation:**
+[View in Postman Documenter](https://documenter.getpostman.com/view/28328727/2sB3QQJnT4#be11f7c6-14f0-4a50-9d05-a726046306fa)
+
 ### Health
 
 ```
