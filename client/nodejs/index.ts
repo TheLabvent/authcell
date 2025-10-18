@@ -1,3 +1,12 @@
+export interface FiberResponse<T = any> {
+	status: "success" | "error";
+	code: number;
+	message?: string;
+	data?: T;
+	error?: unknown;
+	timestamp: number;
+}
+
 export interface APIKeyCreateResponse {
 	api_key: string;
 	id: string;
@@ -28,12 +37,26 @@ export class AuthCellClient {
 			headers,
 			body: body ? JSON.stringify(body) : undefined,
 		});
+
+		// Handle top-level HTTP error
 		if (!res.ok) {
-			const err = await res.text();
-			throw new Error(`HTTP ${res.status}: ${err}`);
+			const errText = await res.text();
+			throw new Error(`HTTP ${res.status}: ${errText}`);
 		}
-		const data = await res.json();
-		return data.data as T;
+
+		const json: FiberResponse<T> = await res.json();
+
+		// The server always sends status, code, timestamp.
+		if (json.status === "error") {
+			throw new Error(`Error ${json.code}: ${json.message || "unknown"}`);
+		}
+
+		// Return only the Data payload to preserve existing call pattern
+		if (!json.data) {
+			throw new Error("No data field in server response");
+		}
+
+		return json.data;
 	}
 
 	async createKey(opts: {

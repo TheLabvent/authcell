@@ -10,6 +10,16 @@ T = TypeVar("T")
 
 
 @dataclass
+class FiberResponse:
+    status: str
+    code: int
+    message: Optional[str] = None
+    data: Optional[Any] = None
+    error: Optional[Any] = None
+    timestamp: Optional[int] = None
+
+
+@dataclass
 class APIKeyCreateResponse:
     api_key: str
     id: str
@@ -21,8 +31,12 @@ class APIKeyVerifyResponse:
     valid: bool
 
 
+# ---------------------- Client ----------------------
+
+
 class AuthCellClient:
     def __init__(self, base_url: Optional[str] = None) -> None:
+        """Initialize client with base URL or autodetect from ENV."""
         self.base_url = (
             base_url or os.getenv("AUTHCELL_URL") or "http://localhost:8080/v1"
         )
@@ -34,6 +48,7 @@ class AuthCellClient:
         body: Optional[Dict[str, Any]] = None,
         response_type: Optional[Type[T]] = None,
     ) -> T:
+        """Core request handler for AuthCell."""
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode("utf-8") if body else None
 
@@ -46,18 +61,38 @@ class AuthCellClient:
 
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
-                if resp.status != 200 and resp.status != 201:
-                    raise RuntimeError(f"HTTP {resp.status}: {resp.read().decode()}")
-                payload = json.loads(resp.read().decode())
-                if "data" not in payload:
-                    return payload  # raw dict fallback
-                data_part = payload["data"]
+                raw = resp.read().decode()
+                if resp.status not in (200, 201):
+                    raise RuntimeError(f"HTTP {resp.status}: {raw}")
+
+                # Parse standard response structure
+                parsed = json.loads(raw)
+                fiber_resp = FiberResponse(**parsed)
+
+                if fiber_resp.status == "error":
+                    raise RuntimeError(
+                        f"ServerError {fiber_resp.code}: {fiber_resp.message or fiber_resp.error}"
+                    )
+
+                if not fiber_resp.data:
+                    raise RuntimeError("Response missing 'data' field")
+
+                # Deserialize into response dataclass if type provided
+                data_part = fiber_resp.data
                 if response_type is not None:
-                    return response_type(**data_part)
+                    # Ensure it's a dict before unpacking
+                    if isinstance(data_part, dict):
+                        return response_type(**data_part)
+                    elif isinstance(data_part, list):
+                        return data_part  # raw list for endpoints like audits
                 return data_part
         except urllib.error.HTTPError as e:
             error_msg = e.read().decode()
             raise RuntimeError(f"HTTPError {e.code}: {error_msg}")
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"ConnectionError: {str(e)}")
+
+    # ---------------------- API Methods ----------------------
 
     def create_key(
         self,
