@@ -104,42 +104,6 @@ Its single goal is **secure key verification**, optimized for embedded or intern
 
 ### Using Docker Compose
 
-**`docker-compose.yml`**
-
-```yaml
-version: "3.9"
-services:
-  authcell:
-    build: .
-    container_name: authcell
-    ports:
-      - "8080:8080"
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USERNAME: authcell
-      DB_PASSWORD: securepassword
-      DB_DATABASE: authcell_db
-      DB_SCHEMA: public
-      PORT: 8080
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:16
-    container_name: authcell-db
-    environment:
-      POSTGRES_USER: authcell
-      POSTGRES_PASSWORD: securepassword
-      POSTGRES_DB: authcell_db
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-```
-
-**Startup**
-
 ```bash
 docker compose up --build
 ```
