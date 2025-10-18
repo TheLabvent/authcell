@@ -36,7 +36,7 @@ Clients automatically deduce the server URL using the `AUTHCELL_URL` environment
 **File:** `client/nodejs/index.ts`
 **Dependencies:** None (uses native `fetch`, Node.js v18+ required)
 
-**Example Use**
+**Example**
 
 ```typescript
 import { AuthCellClient } from "./client/nodejs/index";
@@ -56,12 +56,33 @@ main();
 
 ---
 
+### Python Client
+
+**File:** `client/python/authcell.py`
+**Dependencies:** None (uses `urllib.request`)
+
+**Example**
+```
+
+from client.python.authcell import AuthCellClient
+
+client = AuthCellClient() # uses AUTHCELL_URL or defaults to http://localhost:8080/v1
+
+key = client.create*key(key_prefix="demo*")
+print("API Key:", key.api_key)
+
+result = client.verify_key(key.api_key)
+print("Verified:", result.valid)
+
+````
+
+
 ### Planned Client SDKs
 
 | Language               | Status                        | Description                                       |
 | ---------------------- | ----------------------------- | ------------------------------------------------- |
 | **Node.js/TypeScript** | ✅ In repo (`client/nodejs/`) | Native fetch API, zero dependencies               |
-| **Python**             | Planned                       | HTTPx/Requests wrapper with auto server detection |
+| **Python**             | ✅ In repo (`client/python/`) | urllib.request wrapper with auto server detection |
 
 ---
 
@@ -69,7 +90,7 @@ main();
 
 ```bash
 export AUTHCELL_URL="https://authcell.mydomain.com/v1"
-```
+````
 
 The client will automatically resolve this; no manual configuration required.
 
