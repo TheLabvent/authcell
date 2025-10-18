@@ -1,7 +1,11 @@
 # AuthCell
 
+> Self-hosted API key management as a standalone microservice.
+
+**No vendor lock-in. No external dependencies. Secure and fast.**
+
 **AuthCell** is a self‑contained, open‑source API key management and verification service.
-It provides a fast, lightweight, and self‑hosted alternative to commercial key management solutionss, enabling developers to generate, verify, audit, and revoke API keys securely within their own environment.
+It provides a fast, lightweight, and self‑hosted alternative to commercial key management solutions, enabling developers to generate, verify, audit, and revoke API keys securely within their own environment.
 
 ---
 
@@ -10,7 +14,7 @@ It provides a fast, lightweight, and self‑hosted alternative to commercial key
 AuthCell offers a drop‑in API security layer that can integrate into any stack or existing microservice.
 Designed for simplicity, privacy, and host control, AuthCell runs as a single containerized service — with no external dependencies other than PostgreSQL.
 
-**Core features:**
+## Features
 
 - Full API key lifecycle (create, verify, revoke)
 - Detailed usage tracking and audit logging
