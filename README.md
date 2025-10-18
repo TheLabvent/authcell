@@ -62,8 +62,7 @@ main();
 **Dependencies:** None (uses `urllib.request`)
 
 **Example**
-```
-
+``` python
 from client.python.authcell import AuthCellClient
 
 client = AuthCellClient() # uses AUTHCELL_URL or defaults to http://localhost:8080/v1
