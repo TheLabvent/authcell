@@ -24,6 +24,55 @@ Designed for simplicity, privacy, and host control, AuthCell runs as a single co
 
 ---
 
+## Client Libraries
+
+AuthCell includes lightweight client libraries to simplify integration into your existing applications.
+Clients automatically deduce the server URL using the `AUTHCELL_URL` environment variable or fallback to `http://localhost:8080/v1`.
+
+---
+
+### Node.js / TypeScript Client
+
+**File:** `client/nodejs/index.ts`
+**Dependencies:** None (uses native `fetch`, Node.js v18+ required)
+
+**Example Use**
+
+```typescript
+import { AuthCellClient } from "./client/nodejs/index";
+
+const client = new AuthCellClient(); // will use AUTHCELL_URL or localhost
+
+async function main() {
+  const created = await client.createKey({ key_prefix: "demo_" });
+  console.log("Created key:", created.api_key);
+
+  const verified = await client.verifyKey(created.api_key);
+  console.log("Verification:", verified.valid);
+}
+
+main();
+```
+
+---
+
+### Planned Client SDKs
+
+| Language               | Status                        | Description                                       |
+| ---------------------- | ----------------------------- | ------------------------------------------------- |
+| **Node.js/TypeScript** | ✅ In repo (`client/nodejs/`) | Native fetch API, zero dependencies               |
+| **Python**             | Planned                       | HTTPx/Requests wrapper with auto server detection |
+
+---
+
+### Example ENV Configuration for Clients
+
+```bash
+export AUTHCELL_URL="https://authcell.mydomain.com/v1"
+```
+
+The client will automatically resolve this; no manual configuration required.
+
 ## API Endpoints
 
 API Documentation: [View in Postman Documenter](https://documenter.getpostman.com/view/28328727/2sB3QQJnT4#be11f7c6-14f0-4a50-9d05-a726046306fa)
