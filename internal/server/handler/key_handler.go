@@ -24,6 +24,30 @@ func generateShortKeyID(length int) string {
 	return hex.EncodeToString(b)[:length]
 }
 
+func ListAPIKeys(server *app.FiberServer, ctx *fiber.Ctx) error {
+	keys, err := server.Db.GetAllAPIKeys()
+	if err != nil {
+		return response.Error(ctx, 500, "Failed to retrieve API keys", err)
+	}
+
+	// Hide sensitive data
+	safeKeys := make([]fiber.Map, 0, len(keys))
+	for _, k := range keys {
+		safeKeys = append(safeKeys, fiber.Map{
+			"id":          k.ID,
+			"key_id":      k.KeyID,
+			"key_prefix":  k.KeyPrefix,
+			"is_active":   k.IsActive,
+			"created_at":  k.CreatedAt,
+			"expires_at":  k.ExpiresAt,
+			"rate_limit":  k.RateLimit,
+			"usage_count": k.UsageCount,
+		})
+	}
+
+	return response.Success(ctx, 200, safeKeys)
+}
+
 func CreateAPIKey(server *app.FiberServer, ctx *fiber.Ctx) error {
 	var req struct {
 		KeyPrefix string     `json:"key_prefix"`

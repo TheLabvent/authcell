@@ -25,6 +25,7 @@ type Service interface {
 
 	EnsureSchema() error
 
+	GetAllAPIKeys() ([]APIKey, error)
 	CreateAPIKey(key APIKey) error
 	GetAPIKeyByID(id string) (APIKey, error)
 	GetAPIKeyByPrefix(prefix string) (APIKey, error)

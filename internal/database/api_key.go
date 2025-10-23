@@ -2,6 +2,26 @@ package database
 
 import "context"
 
+func (s *service) GetAllAPIKeys() ([]APIKey, error) {
+	rows, err := s.db.QueryContext(context.Background(),
+		`SELECT id, key_hash, key_prefix, key_id, is_active, created_at, expires_at, rate_limit, usage_count
+		 FROM api_keys ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []APIKey
+	for rows.Next() {
+		var k APIKey
+		if err := rows.Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.KeyID,
+			&k.IsActive, &k.CreatedAt, &k.ExpiresAt, &k.RateLimit, &k.UsageCount); err == nil {
+			keys = append(keys, k)
+		}
+	}
+	return keys, nil
+}
+
 func (s *service) CreateAPIKey(key APIKey) error {
 	_, err := s.db.ExecContext(context.Background(),
 		`INSERT INTO api_key
