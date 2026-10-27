@@ -1,18 +1,44 @@
-name: Go-test
-on: [push, pull_request]
+name: test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: authcell
+          POSTGRES_PASSWORD: authcell
+          POSTGRES_DB: authcell
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U authcell"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
-
+          go-version-file: go.mod
+      - name: Lint
+        run: make lint
       - name: Build
-        run: go build -v ./...
-      - name: Test with the Go CLI
-        run: go test ./... 
+        run: go build ./...
+      - name: Test (unit + integration)
+        env:
+          AUTHCELL_TEST_DATABASE_URL: postgres://authcell:authcell@localhost:5432/authcell?sslmode=disable
+        run: go test -race -count=1 ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --target prod -t authcell:ci .
