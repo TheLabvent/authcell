@@ -1,193 +1,154 @@
+// Package database is the PostgreSQL storage layer for AuthCell.
 package database
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
-	"os"
-	"strconv"
+	"net"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/joho/godotenv/autoload"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Service represents a service that interacts with a database.
+// Service is everything the HTTP layer needs from storage.
 type Service interface {
-	// Health returns a map of health status information.
-	// The keys and values in the map are service-specific.
-	Health() map[string]string
+	Ping(ctx context.Context) error
+	Stats() map[string]any
+	Close()
 
-	// Close terminates the database connection.
-	// It returns an error if the connection cannot be closed.
-	Close() error
+	CreateAPIKey(ctx context.Context, k NewAPIKey) (APIKey, error)
+	GetAPIKeyByID(ctx context.Context, id string) (APIKey, error)
+	GetAPIKeyByKeyID(ctx context.Context, keyID string) (APIKey, error)
+	ListAPIKeys(ctx context.Context, f KeyFilter) ([]APIKey, int, error)
+	UpdateAPIKey(ctx context.Context, id string, u APIKeyUpdate) (APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string) (APIKey, error)
+	UpgradeKeyHash(ctx context.Context, id, hash string) error
+	RecordUse(ctx context.Context, id string, window time.Duration) (UseResult, error)
 
-	EnsureSchema() error
+	TrackUsage(ctx context.Context, apiKeyID, endpoint, ip string, status int) error
+	ListUsage(ctx context.Context, apiKeyID string, before int64, limit int) ([]APIUsage, error)
+	PruneUsage(ctx context.Context, olderThan time.Time) (int64, error)
 
-	GetAllAPIKeys() ([]APIKey, error)
-	CreateAPIKey(key APIKey) error
-	GetAPIKeyByID(id string) (APIKey, error)
-	GetAPIKeyByPrefix(prefix string) (APIKey, error)
-	GetAPIKeyByKeyID(prefix string) (APIKey, error)
-	RevokeAPIKey(id string) error
-	ListUsage(keyID string) ([]APIUsage, error)
-	ListAuditLog() ([]AuditLog, error)
-	TrackUsage(keyID, endpoint, ip string, status int) error
-	TrackAudit(actorType, eventType, ip string, data map[string]any) error
+	TrackAudit(ctx context.Context, actorType, actorID, eventType, ip string, data map[string]any) error
+	ListAuditLog(ctx context.Context, f AuditFilter) ([]AuditLog, error)
+}
+
+// Options configures the connection pool.
+type Options struct {
+	MaxConns        int
+	MinConns        int
+	ConnMaxLifetime time.Duration
 }
 
 type service struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
-var (
-	database   = os.Getenv("DB_DATABASE")
-	password   = os.Getenv("DB_PASSWORD")
-	username   = os.Getenv("DB_USERNAME")
-	port       = os.Getenv("DB_PORT")
-	host       = os.Getenv("DB_HOST")
-	schema     = os.Getenv("DB_SCHEMA")
-	dbInstance *service
-)
-
-func New() Service {
-	// Reuse Connection
-	if dbInstance != nil {
-		return dbInstance
-	}
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=%s", username, password, host, port, database, schema)
-	db, err := sql.Open("pgx", connStr)
+// Connect opens a pool, verifies connectivity and runs migrations.
+func Connect(ctx context.Context, dsn string, opts Options) (Service, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("parse database url: %w", err)
 	}
-	dbInstance = &service{
-		db: db,
+	if opts.MaxConns > 0 {
+		cfg.MaxConns = int32(opts.MaxConns)
 	}
-	return dbInstance
+	if opts.MinConns > 0 && opts.MinConns <= int(cfg.MaxConns) {
+		cfg.MinConns = int32(opts.MinConns)
+	}
+	if opts.ConnMaxLifetime > 0 {
+		cfg.MaxConnLifetime = opts.ConnMaxLifetime
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open pool: %w", err)
+	}
+
+	// Postgres often needs a few seconds to come up in compose; retry briefly.
+	var pingErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		pingErr = pool.Ping(pingCtx)
+		cancel()
+		if pingErr == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			pool.Close()
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		}
+	}
+	if pingErr != nil {
+		pool.Close()
+		return nil, fmt.Errorf("connect to database: %w", pingErr)
+	}
+
+	if err := migrate(ctx, pool); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return &service{pool: pool}, nil
 }
 
-// Health checks the health of the database connection by pinging the database.
-// It returns a map with keys indicating various health statistics.
-func (s *service) Health() map[string]string {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+func (s *service) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
-	stats := make(map[string]string)
+func (s *service) Close() { s.pool.Close() }
 
-	// Ping the database
-	err := s.db.PingContext(ctx)
-	if err != nil {
-		stats["status"] = "down"
-		stats["error"] = fmt.Sprintf("db down: %v", err)
-		log.Fatalf("db down: %v", err) // Log the error and terminate the program
-		return stats
+func (s *service) Stats() map[string]any {
+	st := s.pool.Stat()
+	return map[string]any{
+		"total_conns":    st.TotalConns(),
+		"idle_conns":     st.IdleConns(),
+		"acquired_conns": st.AcquiredConns(),
+		"max_conns":      st.MaxConns(),
 	}
-
-	// Database is up, add more statistics
-	stats["status"] = "up"
-	stats["message"] = "It's healthy"
-
-	// Get database stats (like open connections, in use, idle, etc.)
-	dbStats := s.db.Stats()
-	stats["open_connections"] = strconv.Itoa(dbStats.OpenConnections)
-	stats["in_use"] = strconv.Itoa(dbStats.InUse)
-	stats["idle"] = strconv.Itoa(dbStats.Idle)
-	stats["wait_count"] = strconv.FormatInt(dbStats.WaitCount, 10)
-	stats["wait_duration"] = dbStats.WaitDuration.String()
-	stats["max_idle_closed"] = strconv.FormatInt(dbStats.MaxIdleClosed, 10)
-	stats["max_lifetime_closed"] = strconv.FormatInt(dbStats.MaxLifetimeClosed, 10)
-
-	// Evaluate stats to provide a health message
-	if dbStats.OpenConnections > 40 { // Assuming 50 is the max for this example
-		stats["message"] = "The database is experiencing heavy load."
-	}
-
-	if dbStats.WaitCount > 1000 {
-		stats["message"] = "The database has a high number of wait events, indicating potential bottlenecks."
-	}
-
-	if dbStats.MaxIdleClosed > int64(dbStats.OpenConnections)/2 {
-		stats["message"] = "Many idle connections are being closed, consider revising the connection pool settings."
-	}
-
-	if dbStats.MaxLifetimeClosed > int64(dbStats.OpenConnections)/2 {
-		stats["message"] = "Many connections are being closed due to max lifetime, consider increasing max lifetime or revising the connection usage pattern."
-	}
-
-	return stats
 }
 
-// Close closes the database connection.
-// It logs a message indicating the disconnection from the specific database.
-// If the connection is successfully closed, it returns nil.
-// If an error occurs while closing the connection, it returns the error.
-func (s *service) Close() error {
-	log.Printf("Disconnected from database: %s", database)
-	return s.db.Close()
+// mapErr turns driver errors into package sentinels.
+func mapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return ErrDuplicate
+		case "22P02": // invalid_text_representation, e.g. a bad uuid
+			return ErrNotFound
+		}
+	}
+	return err
 }
 
-func (s *service) EnsureSchema() error {
-	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+func nullable(s string) *string {
+	if s == "" {
+		return nil
 	}
-	defer tx.Rollback()
+	return &s
+}
 
-	// Create api_key table
-	_, err = tx.Exec(`
-    CREATE TABLE IF NOT EXISTS api_key (
-        id uuid NOT NULL DEFAULT gen_random_uuid (),
-        key_id text NOT NULL UNIQUE,
-        key_hash text NOT NULL,
-        key_prefix text NOT NULL,
-        is_active boolean NULL DEFAULT true,
-        created_at timestamp with time zone NULL DEFAULT now(),
-        expires_at timestamp with time zone NULL,
-        rate_limit integer NULL DEFAULT 1000,
-        usage_count integer NULL DEFAULT 0,
-        PRIMARY KEY (id)
-    );
-
-    -- Add index on key_id for fast lookups
-    CREATE INDEX IF NOT EXISTS idx_key_id ON api_key (key_id);`)
-	if err != nil {
-		return err
+func jsonOrEmpty(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return []byte("{}")
 	}
+	return raw
+}
 
-	// Create api_usage table
-	_, err = tx.Exec(`
-        CREATE TABLE IF NOT EXISTS api_usage (
-            id bigserial NOT NULL,
-            api_key_id uuid NULL,
-            endpoint text NULL,
-            used_at timestamp with time zone NULL DEFAULT now(),
-            status integer NULL,
-            remote_ip inet NULL,
-            PRIMARY KEY (id)
-        );
-    `)
-	if err != nil {
-		return err
+// validIP returns ip if it parses, else "", so bad input never breaks an insert.
+func validIP(ip string) string {
+	if net.ParseIP(ip) == nil {
+		return ""
 	}
-
-	// Create audit_log table
-	_, err = tx.Exec(`
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id bigserial NOT NULL,
-            actor_id uuid NULL,
-            actor_type text NULL,
-            event_type text NULL,
-            event_data jsonb NULL,
-            event_time timestamp with time zone NULL DEFAULT now(),
-            remote_ip inet NULL,
-            PRIMARY KEY (id)
-        );
-    `)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return ip
 }

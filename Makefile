@@ -1,64 +1,40 @@
-# Simple Makefile for a Go project
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
+TEST_DB ?= postgres://authcell:authcell@localhost:5432/authcell?sslmode=disable
 
-# Build the application
-all: build test
+.PHONY: all build run test itest lint clean watch docker-run docker-down
+
+all: lint test build
 
 build:
-	@echo "Building..."
+	@echo "Building $(VERSION)..."
+	@CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o main ./cmd/api
 
-
-	@go build -o main cmd/api/main.go
-
-# Run the application
 run:
-	@go run cmd/api/main.go
-# Create DB container
-docker-run:
-	@if docker compose up --build 2>/dev/null; then \
-		: ; \
-	else \
-		echo "Falling back to Docker Compose V1"; \
-		docker-compose up --build; \
-	fi
+	@go run ./cmd/api
 
-# Shutdown DB container
-docker-down:
-	@if docker compose down 2>/dev/null; then \
-		: ; \
-	else \
-		echo "Falling back to Docker Compose V1"; \
-		docker-compose down; \
-	fi
-
-# Test the application
+# Unit tests only. Integration tests skip without a database.
 test:
-	@echo "Testing..."
-	@go test ./... -v
-# Integrations Tests for the application
+	@go test -race ./...
+
+# Unit + integration tests against a real Postgres (start one with `make docker-run`).
 itest:
-	@echo "Running integration tests..."
-	@go test ./internal/database -v
+	@AUTHCELL_TEST_DATABASE_URL="$(TEST_DB)" go test -race -count=1 ./...
 
-# Clean the binary
+lint:
+	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)
+	@go vet ./...
+
 clean:
-	@echo "Cleaning..."
 	@rm -f main
+	@rm -rf tmp dist
 
-# Live Reload
+docker-run:
+	@docker compose up --build
+
+docker-down:
+	@docker compose down
+
 watch:
-	@if command -v $(GOPATH)/bin/air > /dev/null; then \
-            $(GOPATH)/bin/air; \
-            echo "Watching..."; \
-        else \
-            read -p "Go's 'air' is not installed on your machine. Do you want to install it? [Y/n] " choice; \
-            if [ "$$choice" != "n" ] && [ "$$choice" != "N" ]; then \
-                go install github.com/air-verse/air@latest; \
-                air; \
-                echo "Watching...";\
-            else \
-                echo "You chose not to install air. Exiting..."; \
-                exit 1; \
-            fi; \
-        fi
-
-.PHONY: all build run test clean watch docker-run docker-down itest
+	@command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@latest
+	@air

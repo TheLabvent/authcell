@@ -1,42 +1,38 @@
 version: 2
+project_name: authcell
+
 before:
   hooks:
-  - go mod tidy
-
-env:
-  - PACKAGE_PATH=github.com/<user>/<repo>/cmd
+    - go mod download
 
 builds:
-- binary: "{{ .ProjectName }}"
-  main: ./cmd/api
-  goos:
-  - darwin
-  - linux
-  - windows
-  goarch:
-  - amd64
-  - arm64
-  env:
-  - CGO_ENABLED=0
-  ldflags:
-  - -s -w -X {{.Env.PACKAGE_PATH}}={{.Version}} 
-release:
-  prerelease: auto
+  - binary: authcell
+    main: ./cmd/api
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
 
 universal_binaries:
-- replace: true
+  - replace: true
 
 archives:
-  - name_template: >
-      {{- .ProjectName }}_{{- .Version }}_{{- title .Os }}_{{- if eq .Arch "amd64" }}x86_64{{- else if eq .Arch "386" }}i386{{- else }}{{ .Arch }}{{ end }}{{- if .Arm }}v{{ .Arm }}{{ end -}}
+  - name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
-    builds_info:
-      group: root
-      owner: root
+        formats: [zip]
     files:
       - README.md
+      - LICENSE
+      - .env.example
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: checksums.txt
+
+release:
+  prerelease: auto
