@@ -1,51 +1,47 @@
 services:
-    app:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            target: prod
-        restart: unless-stopped
-        ports:
-            - ${PORT}:${PORT}
-        environment:
-            APP_ENV: ${APP_ENV}
-            PORT: ${PORT}
-            DB_HOST: ${DB_HOST}
-            DB_PORT: ${DB_PORT}
-            DB_DATABASE: ${DB_DATABASE}
-            DB_USERNAME: ${DB_USERNAME}
-            DB_PASSWORD: ${DB_PASSWORD}
-            DB_SCHEMA: ${DB_SCHEMA}
-        depends_on:
-            psql_bp:
-                condition: service_healthy
-        networks:
-            - blueprint
-    psql_bp:
-        image: postgres:latest
-        restart: unless-stopped
-        environment:
-            POSTGRES_DB: ${DB_DATABASE}
-            POSTGRES_USER: ${DB_USERNAME}
-            POSTGRES_PASSWORD: ${DB_PASSWORD}
-        ports:
-            - "${DB_PORT}:5432"
-        volumes:
-            - psql_volume_bp:/var/lib/postgresql/data
-        healthcheck:
-            test:
-                [
-                    "CMD-SHELL",
-                    "sh -c 'pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}'",
-                ]
-            interval: 5s
-            timeout: 5s
-            retries: 3
-            start_period: 15s
-        networks:
-            - blueprint
+  app:
+    build:
+      context: .
+      target: prod
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      PORT: ${PORT:-8080}
+      AUTHCELL_ADMIN_TOKEN: ${AUTHCELL_ADMIN_TOKEN:?set AUTHCELL_ADMIN_TOKEN in .env (openssl rand -hex 32)}
+      AUTHCELL_VERIFY_TOKEN: ${AUTHCELL_VERIFY_TOKEN:-}
+      # Inside compose the database is always the "postgres" service, whatever .env says.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-authcell}
+      DB_USERNAME: ${DB_USERNAME:-authcell}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1m}
+      USAGE_RETENTION_DAYS: ${USAGE_RETENTION_DAYS:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-authcell}
+      POSTGRES_USER: ${DB_USERNAME:-authcell}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    # Only reachable from this machine. Remove the mapping entirely in production.
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 volumes:
-    psql_volume_bp:
-networks:
-    blueprint:
+  pgdata:
