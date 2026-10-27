@@ -27,7 +27,8 @@ tmp/
 
 # Project build
 main
-*templ.go
+dist/
+build-errors.log
 
 # OS X generated file
 .DS_Store
